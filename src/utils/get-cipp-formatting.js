@@ -6,6 +6,10 @@ import {
   MailOutline,
   Shield,
   Description,
+  Group,
+  MeetingRoom,
+  GroupWork,
+  GroupOutlined,
 } from "@mui/icons-material";
 import { Chip, Link, SvgIcon } from "@mui/material";
 import { Box } from "@mui/system";
@@ -13,11 +17,20 @@ import { CippCopyToClipBoard } from "../components/CippComponents/CippCopyToClip
 import { getCippLicenseTranslation } from "./get-cipp-license-translation";
 import CippDataTableButton from "../components/CippTable/CippDataTableButton";
 import { LinearProgressWithLabel } from "../components/linearProgressWithLabel";
+import { CippLocationDialog } from "../components/CippComponents/CippLocationDialog";
 import { isoDuration, en } from "@musement/iso-duration";
 import { CippTimeAgo } from "../components/CippComponents/CippTimeAgo";
 import { getCippRoleTranslation } from "./get-cipp-role-translation";
-import { CogIcon, ServerIcon, UserIcon, UsersIcon } from "@heroicons/react/24/outline";
+import {
+  BuildingOfficeIcon,
+  CogIcon,
+  ServerIcon,
+  UserIcon,
+  UsersIcon,
+} from "@heroicons/react/24/outline";
 import { getCippTranslation } from "./get-cipp-translation";
+import DOMPurify from "dompurify";
+import { getSignInErrorCodeTranslation } from "./get-cipp-signin-errorcode-translation";
 
 export const getCippFormatting = (data, cellName, type, canReceive) => {
   const isText = type === "text";
@@ -59,6 +72,20 @@ export const getCippFormatting = (data, cellName, type, canReceive) => {
     );
   }
 
+  if (cellName === "prohibitSendReceiveQuotaInBytes" || cellName === "storageUsedInBytes") {
+    //convert bytes to GB
+    const bytes = data;
+    if (bytes === null || bytes === undefined) {
+      return isText ? (
+        "No data"
+      ) : (
+        <Chip variant="outlined" label="No data" size="small" color="info" />
+      );
+    }
+    const gb = bytes / 1024 / 1024 / 1024;
+    return isText ? `${gb.toFixed(2)} GB` : `${gb.toFixed(2)} GB`;
+  }
+
   if (cellName === "info.logoUrl") {
     return isText ? (
       data
@@ -94,6 +121,8 @@ export const getCippFormatting = (data, cellName, type, canReceive) => {
     "purchaseDate",
     "NextOccurrence",
     "LastOccurrence",
+    "NotBefore",
+    "NotAfter",
   ];
 
   const matchDateTime = /[dD]ate[tT]ime/;
@@ -187,8 +216,19 @@ export const getCippFormatting = (data, cellName, type, canReceive) => {
         ? data.join(", ")
         : data.map((item) => (
             <CippCopyToClipBoard
-              key={`${item.label}`}
-              text={item.label ? item.label : item}
+              key={`${item?.label}`}
+              text={item?.label ? item?.label : item}
+              icon={
+                item?.type === "Group" ? (
+                  <SvgIcon sx={{ ml: 0.25 }}>
+                    <GroupOutlined />
+                  </SvgIcon>
+                ) : item?.type === "Tenant" ? (
+                  <SvgIcon sx={{ ml: 0.25 }}>
+                    <BuildingOfficeIcon />
+                  </SvgIcon>
+                ) : null
+              }
               type="chip"
             />
           ));
@@ -196,9 +236,31 @@ export const getCippFormatting = (data, cellName, type, canReceive) => {
       return isText ? (
         data
       ) : (
-        <CippCopyToClipBoard text={data.label ? data.label : data} type="chip" />
+        <CippCopyToClipBoard text={data?.label ? data?.label : data} type="chip" />
       );
     }
+  }
+
+  if (cellName === "PostExecution") {
+    const values = data ? data?.split(",").map((item) => item.trim()) : [];
+    if (values.length > 0) {
+      return isText
+        ? data
+        : values.map((value, index) => (
+            <Chip
+              key={index}
+              size="small"
+              variant="outlined"
+              label={value}
+              color="info"
+              sx={{ mr: 0.5 }}
+            />
+          ));
+    }
+  }
+
+  if (cellName === "ClientId" || cellName === "role") {
+    return isText ? data : <CippCopyToClipBoard text={data} type="chip" />;
   }
 
   if (cellName === "excludedTenants") {
@@ -216,9 +278,13 @@ export const getCippFormatting = (data, cellName, type, canReceive) => {
   }
 
   if (data?.enabled === true && data?.date) {
-    return isText
-      ? `Yes, Scheduled for ${new Date(data.date).toLocaleString()}`
-      : `Yes, Scheduled for ${new Date(data.date).toLocaleString()}`;
+    return isText ? (
+      `Yes, Scheduled for ${new Date(data.date).toLocaleString()}`
+    ) : (
+      <>
+        Yes, Scheduled for <CippTimeAgo data={data.date} />
+      </>
+    );
   }
   if (data?.enabled === true || data?.enabled === false) {
     return isText ? (
@@ -242,6 +308,33 @@ export const getCippFormatting = (data, cellName, type, canReceive) => {
         ? "Report Only"
         : data;
     return isText ? data : <Chip variant="outlined" label={data} size="small" color="info" />;
+  }
+
+  if (cellName === "Parameters.ScheduledBackupValues") {
+    return isText ? (
+      JSON.stringify(data)
+    ) : (
+      <CippDataTableButton
+        data={Object.keys(data).map((key) => {
+          return { key, value: data[key] };
+        })}
+        tableTitle={getCippTranslation(cellName)}
+      />
+    );
+  }
+
+  if (cellName === 'AccessRights') {
+    // Handle data as an array or string
+    const accessRights = Array.isArray(data)
+      ? data.flatMap((item) => (typeof item === "string" ? item.split(", ") : []))
+      : typeof data === "string"
+      ? data.split(", ")
+      : [];
+    return isText
+      ? accessRights.join(", ")
+      : accessRights.map((accessRight) => (
+          <CippCopyToClipBoard key={accessRight} text={accessRight} type="chip" />
+        ));
   }
 
   // Handle null or undefined data
@@ -337,13 +430,15 @@ export const getCippFormatting = (data, cellName, type, canReceive) => {
     );
   }
 
-  const translateProps = [
-    "riskLevel",
-    "riskState",
-    "riskDetail",
-    "enrollmentType",
-    "profileType",
-  ];
+  if (cellName === "status.errorCode") {
+    return getSignInErrorCodeTranslation(data);
+  }
+
+  if (cellName === "location" && data?.geoCoordinates) {
+    return isText ? JSON.stringify(data) : <CippLocationDialog location={data} />;
+  }
+
+  const translateProps = ["riskLevel", "riskState", "riskDetail", "enrollmentType", "profileType"];
 
   if (translateProps.includes(cellName)) {
     return getCippTranslation(data);
@@ -370,6 +465,20 @@ export const getCippFormatting = (data, cellName, type, canReceive) => {
       <Box component="span">
         <Chip variant="outlined" label="No data" size="small" color="info" />
       </Box>
+    );
+  }
+
+  // handle htmlDescription
+  if (cellName === "htmlDescription") {
+    return isText ? (
+      data
+    ) : (
+      <Box
+        component="span"
+        dangerouslySetInnerHTML={{
+          __html: DOMPurify.sanitize(data),
+        }}
+      />
     );
   }
 
@@ -401,12 +510,41 @@ export const getCippFormatting = (data, cellName, type, canReceive) => {
     );
   }
 
+  if (cellName === "Visibility") {
+    const gitHubVisibility = ["public", "private", "internal"];
+    if (gitHubVisibility.includes(data)) {
+      return isText ? (
+        data
+      ) : (
+        <Chip
+          variant="outlined"
+          label={data}
+          size="small"
+          color={data === "private" ? "error" : data === "public" ? "success" : "primary"}
+          sx={{ textTransform: "capitalize" }}
+        />
+      );
+    }
+  }
+
   if (cellName === "AutoMapUrl") {
     return isText ? data : <CippCopyToClipBoard text={data} />;
   }
 
   // Handle arrays of strings
   if (Array.isArray(data) && data.every((item) => typeof item === "string")) {
+    // if string matches json format, parse it
+    if (data.every((item) => item.startsWith("{") || item.startsWith("["))) {
+      return isText ? (
+        JSON.stringify(data)
+      ) : (
+        <CippDataTableButton
+          data={data.map((item) => JSON.parse(item))}
+          tableTitle={getCippTranslation(cellName)}
+        />
+      );
+    }
+
     //if the array is empty, return "No data"
     return isText
       ? data.join(", ")
